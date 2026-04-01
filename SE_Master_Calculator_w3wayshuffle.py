@@ -117,8 +117,8 @@ except ImportError:
 
 # Default text files (can be overridden via command line)
 # Set to None or empty string to skip that condition
-TEXT_FILE = "C:/Users/Michael Kurian/Desktop/PhD Applications/genesis_original.txt.txt"
-WORD_SHUFFLE_FILE = "C:/Users/Michael Kurian/Desktop/PhD Applications/genesis_shuffled.txt.txt"
+TEXT_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/Genesis 1-3 SE original.txt"
+WORD_SHUFFLE_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/Genesis Word Shuffled.docx"
 SENT_SHUFFLE_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/genesis_sentence_shuffled.txt.txt"
 
 # Random seed for reproducibility
@@ -701,6 +701,42 @@ def count_motifs_in_window(window_tokens, motif_dict):
 
 
 # ============================================================================
+# MOTIF DICTIONARY NORMALIZATION
+# ============================================================================
+
+def normalize_motif_dict(motif_dict):
+    """
+    Normalize motif dictionary to canonical format.
+    
+    Accepts two formats:
+    
+    1. Words-only (flat list):
+        {'Category': ['word1', 'word2', 'word3']}
+    
+    2. Structured (words and/or phrases):
+        {'Category': {'words': ['word1'], 'phrases': ['multi word phrase']}}
+    
+    Returns: dict in structured format (format 2).
+    """
+    normalized = {}
+    
+    for category, category_data in motif_dict.items():
+        if isinstance(category_data, list):
+            # Flat list format → wrap in {'words': [...]}
+            normalized[category] = {'words': category_data}
+        elif isinstance(category_data, dict):
+            # Already structured format
+            normalized[category] = category_data
+        else:
+            raise ValueError(
+                f"Motif category '{category}' has unsupported type: {type(category_data)}. "
+                f"Expected list of words or dict with 'words'/'phrases' keys."
+            )
+    
+    return normalized
+
+
+# ============================================================================
 # MAIN SE ANALYSIS FUNCTION
 # ============================================================================
 
@@ -710,6 +746,9 @@ def run_se_analysis(text_path, motif_dict):
     Returns: (results_df, raw_densities, kl_contributions, motif_dict, 
               baseline, window_size, total_tokens, tokens)
     """
+    # Normalize motif dictionary to handle both flat-list and structured formats
+    motif_dict = normalize_motif_dict(motif_dict)
+    
     print(f"\n{'='*70}")
     print(f"ANALYZING: {os.path.basename(text_path)}")
     print(f"{'='*70}\n")
@@ -829,8 +868,8 @@ def plot_dual_heatmap(results_df, raw_densities, kl_contributions,
     H_min, H_max = H_values.min(), H_values.max()
     sigma_min, sigma_max = sigma_values.min(), sigma_values.max()
     
-    H_scaled = (n_categories - 1) * (1 - (H_values - H_min) / (H_max - H_min + 1e-10))
-    sigma_scaled = (n_categories - 1) * (1 - (sigma_values - sigma_min) / (sigma_max - sigma_min + 1e-10))
+    H_scaled = (n_categories - 1) * (H_values - H_min) / (H_max - H_min + 1e-10)
+    sigma_scaled = (n_categories - 1) * (sigma_values - sigma_min) / (sigma_max - sigma_min + 1e-10)
     
     # LEFT: Raw density heatmap
     if z_limits and 'density' in z_limits:
@@ -1260,10 +1299,12 @@ def print_publication_statistics(results_df, text_path, total_tokens,
 # THREE-WAY COMPARISON VISUALIZATION
 # ============================================================================
 
-def plot_3way_comparison(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z_limits):
+def plot_3way_comparison(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z_limits,
+                         orig_df=None, word_df=None, sent_df=None):
     """
     Create side-by-side KL heatmaps for all three conditions.
     All use the same z-axis from the original for valid comparison.
+    Includes overlaid H (cyan) and Σ (white) line plots on each heatmap.
     """
     # Create figure with extra space at bottom for colorbar
     fig = plt.figure(figsize=(24, 10))
@@ -1281,10 +1322,11 @@ def plot_3way_comparison(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z
     
     titles = ['ORIGINAL', 'WORD SHUFFLED', 'SENTENCE SHUFFLED']
     data_sets = [orig_kl, word_kl, sent_kl]
+    results_dfs = [orig_df, word_df, sent_df]
     
     im = None  # Store last valid imshow for colorbar
     
-    for ax, title, kl_data in zip(axes, titles, data_sets):
+    for ax, title, kl_data, rdf in zip(axes, titles, data_sets, results_dfs):
         if kl_data is not None:
             im = ax.imshow(kl_data.T, aspect='auto', cmap='plasma',
                           interpolation='nearest', origin='lower',
@@ -1294,6 +1336,25 @@ def plot_3way_comparison(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z
             ax.set_ylabel('Motif Category', fontsize=11)
             ax.set_yticks(range(n_categories))
             ax.set_yticklabels(categories, fontsize=7)  # Reduced from 9 to 7
+            
+            # Overlay H and Σ lines if results DataFrame is available
+            if rdf is not None:
+                window_indices = rdf['window_index'].values
+                H_values = rdf['H'].values
+                sigma_values = rdf['Sigma'].values
+                
+                # Min-max normalization to [0, n_categories-1] range
+                H_min, H_max = H_values.min(), H_values.max()
+                sigma_min, sigma_max = sigma_values.min(), sigma_values.max()
+                
+                H_scaled = (n_categories - 1) * (H_values - H_min) / (H_max - H_min + 1e-10)
+                sigma_scaled = (n_categories - 1) * (sigma_values - sigma_min) / (sigma_max - sigma_min + 1e-10)
+                
+                ax.plot(window_indices, sigma_scaled, color='white', linewidth=1.0, 
+                        alpha=0.4, label='Σ (white)')
+                ax.plot(window_indices, H_scaled, color='cyan', linewidth=1.0, 
+                        alpha=0.4, label='H (cyan)')
+                ax.legend(loc='upper right', fontsize=7, framealpha=0.8)
         else:
             ax.text(0.5, 0.5, 'Not Provided', ha='center', va='center',
                    fontsize=14, transform=ax.transAxes)
@@ -1552,7 +1613,9 @@ if __name__ == "__main__":
         # Generate side-by-side comparison
         print("Generating three-way comparison visualization...")
         plot_3way_comparison(orig_kl_contributions, word_kl_contributions, 
-                            sent_kl_contributions, motif_dict_used, output_prefix, z_limits)
+                            sent_kl_contributions, motif_dict_used, output_prefix, z_limits,
+                            orig_df=results_df, word_df=word_results_df, 
+                            sent_df=sent_results_df)
         
         # Export validation summary with Cohen's d
         print("Exporting validation summary...")
