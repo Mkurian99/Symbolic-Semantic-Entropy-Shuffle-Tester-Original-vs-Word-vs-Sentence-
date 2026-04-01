@@ -72,6 +72,7 @@ OUTPUTS (Sentence Shuffle):
 
 OUTPUTS (Comparison):
     - <textname>_3way_comparison.png     (side-by-side KL heatmaps)
+    - <textname>_3way_clean.png          (clean trifold, shared Y-axis)
     - <textname>_validation_summary.csv  (statistical comparison)
 
 DEPENDENCIES:
@@ -120,6 +121,7 @@ except ImportError:
 TEXT_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/Genesis 1-3 SE original.txt"
 WORD_SHUFFLE_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/Genesis Word Shuffled.docx"
 SENT_SHUFFLE_FILE = "C:/Users/Michael Kurian/Desktop/Advanced Researches/TXT Files for SE/genesis_sentence_shuffled.txt.txt"
+
 
 # Random seed for reproducibility
 RANDOM_SEED = 42
@@ -1379,6 +1381,85 @@ def plot_3way_comparison(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z
     plt.close()
 
 
+def plot_3way_clean(orig_kl, word_kl, sent_kl, motif_dict, output_prefix, z_limits,
+                    orig_df=None, word_df=None, sent_df=None):
+    """
+    Clean three-way comparison: shared Y-axis labels on left panel only,
+    no legends, horizontal colorbar at bottom.
+    """
+    fig = plt.figure(figsize=(24, 10))
+    
+    gs = fig.add_gridspec(2, 3, height_ratios=[1, 0.05], hspace=0.25,
+                          wspace=0.05)
+    
+    axes = [fig.add_subplot(gs[0, i]) for i in range(3)]
+    cbar_ax = fig.add_subplot(gs[1, :])
+    
+    categories = list(motif_dict.keys())
+    n_categories = len(categories)
+    
+    vmin_k, vmax_k = z_limits['kl']
+    
+    titles = ['ORIGINAL', 'WORD SHUFFLED', 'SENTENCE SHUFFLED']
+    data_sets = [orig_kl, word_kl, sent_kl]
+    results_dfs = [orig_df, word_df, sent_df]
+    
+    im = None
+    
+    for i, (ax, title, kl_data, rdf) in enumerate(zip(axes, titles, data_sets, results_dfs)):
+        if kl_data is not None:
+            im = ax.imshow(kl_data.T, aspect='auto', cmap='plasma',
+                          interpolation='nearest', origin='lower',
+                          vmin=vmin_k, vmax=vmax_k)
+            ax.set_ylim(-0.5, n_categories - 0.5)
+            ax.set_xlabel('Window Index', fontsize=11)
+            ax.set_yticks(range(n_categories))
+            
+            # Y-axis labels only on leftmost panel
+            if i == 0:
+                ax.set_ylabel('Motif Category', fontsize=11)
+                ax.set_yticklabels(categories, fontsize=7)
+            else:
+                ax.set_yticklabels([])
+            
+            # Overlay H and Σ lines (no labels, no legend)
+            if rdf is not None:
+                window_indices = rdf['window_index'].values
+                H_values = rdf['H'].values
+                sigma_values = rdf['Sigma'].values
+                
+                H_min, H_max = H_values.min(), H_values.max()
+                sigma_min, sigma_max = sigma_values.min(), sigma_values.max()
+                
+                H_scaled = (n_categories - 1) * (H_values - H_min) / (H_max - H_min + 1e-10)
+                sigma_scaled = (n_categories - 1) * (sigma_values - sigma_min) / (sigma_max - sigma_min + 1e-10)
+                
+                ax.plot(window_indices, sigma_scaled, color='white', linewidth=1.0, alpha=0.4)
+                ax.plot(window_indices, H_scaled, color='cyan', linewidth=1.0, alpha=0.4)
+        else:
+            ax.text(0.5, 0.5, 'Not Provided', ha='center', va='center',
+                   fontsize=14, transform=ax.transAxes)
+            ax.set_xticks([])
+            ax.set_yticks([])
+        
+        ax.set_title(title, fontsize=14, fontweight='bold')
+    
+    # Horizontal colorbar across bottom
+    if im is not None:
+        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
+        cbar.set_label('KL Contribution (bits/token)', fontsize=12)
+    
+    fig.suptitle('Three-Way Comparison: Hierarchical Structure Destruction', 
+                 fontsize=18, fontweight='bold', y=0.98)
+    
+    plt.tight_layout()
+    filename = f'{output_prefix}_3way_clean.png'
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    print(f"✓ Saved: {filename}")
+    plt.show()
+    plt.close()
+
+
 def calculate_cohens_d(group1, group2):
     """Calculate Cohen's d effect size between two groups."""
     n1, n2 = len(group1), len(group2)
@@ -1617,6 +1698,13 @@ if __name__ == "__main__":
                             orig_df=results_df, word_df=word_results_df, 
                             sent_df=sent_results_df)
         
+        # Generate clean three-way comparison (shared Y-axis, no legends)
+        print("Generating clean three-way comparison visualization...")
+        plot_3way_clean(orig_kl_contributions, word_kl_contributions, 
+                        sent_kl_contributions, motif_dict_used, output_prefix, z_limits,
+                        orig_df=results_df, word_df=word_results_df, 
+                        sent_df=sent_results_df)
+        
         # Export validation summary with Cohen's d
         print("Exporting validation summary...")
         summary_df = export_validation_summary(results_df, word_results_df, 
@@ -1699,6 +1787,7 @@ if __name__ == "__main__":
     if word_kl_contributions is not None or sent_kl_contributions is not None:
         print(f"\nComparison outputs:")
         print(f"  - {output_prefix}_3way_comparison.png")
+        print(f"  - {output_prefix}_3way_clean.png")
         print(f"  - {output_prefix}_validation_summary.csv")
     
     print(f"\nFor publication, cite:")
